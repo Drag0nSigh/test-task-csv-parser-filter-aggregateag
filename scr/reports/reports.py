@@ -1,6 +1,6 @@
 from abc import ABC
 import re
-from typing import List, Union, Tuple
+from typing import List, Optional, Union, Tuple
 
 from scr.constants import FIELDS_FOR_FILTER, OPERATORS_FOR_FILTER, WHERE_PATTERN
 from scr.models.goods import Good
@@ -124,4 +124,20 @@ class Filter(Report):
 
         return filtered
 
+    def calculate_aggregation(self, field: str, operation: str) -> Optional[float]:
+        """
+        Вычисляет агрегацию (avg, min, max) для указанного поля (price, rating).
+        Возвращает результат или None, если список товаров пуст.
+        """
+        if not self.data:
+            return None
 
+        values = [getattr(good, field) for good in self.data]
+
+        if operation == 'avg':
+            return sum(values) / len(values)
+        elif operation == 'min':
+            return min(values)
+        elif operation == 'max':
+            return max(values)
+        return None

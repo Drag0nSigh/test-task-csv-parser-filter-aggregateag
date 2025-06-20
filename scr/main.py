@@ -1,13 +1,15 @@
 import argparse
 import sys
 from pathlib import Path
-from typing import List
+from typing import Any, List, Union
 
 import json
+import re
 from tabulate import tabulate
 
 sys.path.append(str(Path(__file__).parent.parent))
 
+from scr.constants import AGGR_PATTERN
 from scr.models.goods import Good
 from scr.reports.reports import Filter
 from scr.parsers.parsers import ParserCsv
@@ -59,7 +61,52 @@ def parse_arguments() -> argparse.Namespace:
         help='Условия для фильтрации данных. Можно использовать несколько условий, разделяя ";" (AND) или "|" (OR), '
              'например: --where "brand=xiaomi;rating>=4.8|price<=500"'
     )
+    parser.add_argument(
+        '--aggregate',
+        help='Агрегация данных в формате "field=operation", например, "rating=avg" или "price=min"'
+    )
     return parser.parse_args()
+
+
+def validate_aggregate(aggregate: str) -> tuple[str, str]:
+    """Валидирует аргумент --aggregate, возвращает (field, operation)."""
+    if not aggregate:
+        raise ValueError("Аргумент --aggregate не может быть пустым")
+    match = re.match(AGGR_PATTERN, aggregate)
+    if not match:
+        raise ValueError('Неверный формат агрегации: должен быть "field=operation", где field в ["price", "rating"],'
+                         ' operation в ["avg", "min", "max"]')
+    field, operation = match.groups()
+    return field, operation
+
+
+def print_table(
+        data: List[Any],
+        headers: Union[List[str], str],
+        floatfmt: str,
+        where: str,
+        aggregate: str = None
+) -> None:
+    """Выводит таблицу в терминал с описанием отчёта."""
+    description = f'Агрегация товаров (условие: {where or "без фильтра"}, агрегация: {aggregate})'\
+        if aggregate else f'Отфильтрованные товары (условие: {where or "без фильтра"})'
+    print(description + ':')
+    print(tabulate(data, headers=headers, tablefmt='grid', floatfmt=floatfmt))
+
+
+def save_json(data: Any, output: str, output_dir: str = 'export') -> None:
+    """Сохраняет данные в JSON-файл в указанной папке."""
+    output_path = Path(output_dir)
+    output_path.mkdir(exist_ok=True)
+    output_file = output_path / f'{output}.json' if not output.endswith('.json') else output_path / output
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f'Отчёт сохранён в файл: {output_file}')
+    except Exception as e:
+        print(f'Ошибка при сохранении JSON: {e}')
+        sys.exit(1)
+
 
 def process_files(file_paths: List[str]) -> List[Good]:
     combined_result = []
@@ -90,33 +137,42 @@ def main():
     # Чтение и парсинг данных
     goods = process_files(args.files)
 
-    # Фильтрация данных, если указано условие
+    # Фильтрация данных, если указано непустое условие
     if args.where and args.where.strip():
         try:
             filter_report = Filter(goods)
             goods = filter_report.filter_goods(args.where)
         except ValueError as e:
             print(f'Ошибка в условии фильтрации: {e}')
-            exit(1)
-
-    # Вывод отчёта
-    if args.report == 'terminal':
-        data = [good.__dict__ for good in goods]
-        print(f'Отфильтрованные товары (условие: {args.where or "без фильтра"}):')
-        print(tabulate(data, headers='keys', tablefmt='grid', floatfmt='.1f'))
-    elif args.report == 'json':
-        output_dir = Path('export')
-        output_dir.mkdir(exist_ok=True)  # Создаём папку export, если не существует
-        output_file = output_dir / f'{args.output}.json' if not args.output.endswith(
-            '.json') else output_dir / args.output
-        data = [good.__dict__ for good in goods]
-        try:
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            print(f'Отчёт сохранён в файл: {output_file}')
-        except Exception as e:
-            print(f'Ошибка при сохранении JSON: {e}')
             sys.exit(1)
+
+    # Обработка агрегации
+    if args.aggregate:
+        try:
+            field, operation = validate_aggregate(args.aggregate)
+            filter_report = Filter(goods)
+            result = filter_report.calculate_aggregation(field, operation)
+            if args.report == 'terminal':
+                print_table(
+                    [[result]],
+                    headers=[operation],
+                    floatfmt='.2f',
+                    where=args.where,
+                    aggregate=args.aggregate
+                )
+            elif args.report == 'json':
+                save_json({operation: result}, args.output)
+        except ValueError as e:
+            print(f'Ошибка в агрегации: {e}')
+            sys.exit(1)
+    else:
+        # Вывод отчёта без агрегации
+        if args.report == 'terminal':
+            data = [good.__dict__ for good in goods]
+            print_table(data, headers='keys', floatfmt='.1f', where=args.where)
+        elif args.report == 'json':
+            data = [good.__dict__ for good in goods]
+            save_json(data, args.output)
 
 
 if __name__ == '__main__':
