@@ -141,3 +141,16 @@ class Filter(Report):
         elif operation == 'max':
             return max(values)
         return None
+
+    def sort_goods(self, field: str, order: str) -> List[Good]:
+        """
+        Сортирует список товаров по указанному полю и порядку (asc или desc).
+        """
+        if not self.data:
+            return self.data
+
+        reverse = order == 'desc'
+        return sorted(
+            self.data,
+            key=lambda good: getattr(good, field), reverse=reverse
+        )

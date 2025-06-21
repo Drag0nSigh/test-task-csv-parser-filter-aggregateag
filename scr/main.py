@@ -9,7 +9,7 @@ from tabulate import tabulate
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from scr.constants import AGGR_PATTERN
+from scr.constants import AGGR_PATTERN, ORDER_PATTERN
 from scr.models.goods import Good
 from scr.reports.reports import Filter
 from scr.parsers.parsers import ParserCsv
@@ -58,12 +58,19 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         '--where',
-        help='Условия для фильтрации данных. Можно использовать несколько условий, разделяя ";" (AND) или "|" (OR), '
+        help='Условия для фильтрации данных. Можно использовать несколько '
+             'условий, разделяя ";" (AND) или "|" (OR), '
              'например: --where "brand=xiaomi;rating>=4.8|price<=500"'
     )
     parser.add_argument(
         '--aggregate',
-        help='Агрегация данных в формате "field=operation", например, "rating=avg" или "price=min"'
+        help='Агрегация данных в формате "field=operation", например, '
+             '"rating=avg" или "price=min"'
+    )
+    parser.add_argument(
+        '--order-by',
+        help='Сортировка данных в формате "field=order", например, "brand=asc"'
+             ' или "price=desc"'
     )
     return parser.parse_args()
 
@@ -74,11 +81,23 @@ def validate_aggregate(aggregate: str) -> tuple[str, str]:
         raise ValueError("Аргумент --aggregate не может быть пустым")
     match = re.match(AGGR_PATTERN, aggregate)
     if not match:
-        raise ValueError('Неверный формат агрегации: должен быть "field=operation", где field в ["price", "rating"],'
+        raise ValueError('Неверный формат агрегации: должен быть '
+                         '"field=operation", где field в ["price", "rating"],'
                          ' operation в ["avg", "min", "max"]')
     field, operation = match.groups()
     return field, operation
 
+def validate_order_by(order_by: str) -> tuple[str, str]:
+    """Валидирует аргумент --order-by, возвращает (field, order)."""
+    if not order_by:
+        raise ValueError("Аргумент --order-by не может быть пустым")
+    match = re.match(ORDER_PATTERN, order_by)
+    if not match:
+        raise ValueError('Неверный формат сортировки: должен быть "field=order"'
+                         ', где field в ["name", "brand", "price", "rating"],'
+                         ' order в ["asc", "desc"]')
+    field, order = match.groups()
+    return field, order
 
 def print_table(
         data: List[Any],
@@ -144,6 +163,16 @@ def main():
             goods = filter_report.filter_goods(args.where)
         except ValueError as e:
             print(f'Ошибка в условии фильтрации: {e}')
+            sys.exit(1)
+
+    # Сортировка данных, если указано
+    if args.order_by:
+        try:
+            field, order = validate_order_by(args.order_by)
+            filter_report = Filter(goods)
+            goods = filter_report.sort_goods(field, order)
+        except ValueError as e:
+            print(f'Ошибка в сортировке: {e}')
             sys.exit(1)
 
     # Обработка агрегации

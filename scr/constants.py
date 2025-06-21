@@ -9,3 +9,6 @@ WHERE_PATTERN: Final[str] = r'^(\w+)(=|!=|>|<|>=|<=)(.+)$'
 
 # Регулярное выражение для парсинга aggregation
 AGGR_PATTERN: Final[str] = r'^(price|rating)=(avg|min|max)$'
+
+# Регулярное выражение для парсинга order-by
+ORDER_PATTERN: Final[str] = r'^(name|brand|price|rating)=(asc|desc)$'
