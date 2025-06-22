@@ -4,3 +4,4 @@ exclude =
     export,
     __pycache__,
     *.pyc
+ignore = D100, D101, D104, D105, D107

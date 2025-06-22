@@ -10,6 +10,7 @@ class ParserCsv:
         self.csv_file = csv_file
 
     def parse_data(self) -> List[Good]:
+        """Парсит файл csv по условиям и создаёт список объектов Good."""
         goods = []
         reader = csv.DictReader(self.csv_file)
 
@@ -26,7 +27,8 @@ class ParserCsv:
                 rating_str = row.get('rating', '').strip()
 
                 if not all([name, brand, price_str, rating_str]):
-                    raise ValueError("Одно или несколько обязательных полей пусты")
+                    raise ValueError("Одно или несколько обязательных полей "
+                                     "пусты")
 
                 price = int(price_str)
                 rating = float(rating_str)

@@ -1,8 +1,8 @@
-from abc import ABC
 import re
-from typing import List, Optional, Union, Tuple
+from abc import ABC
+from typing import List, Optional, Tuple, Union
 
-from scr.constants import FIELDS_FOR_FILTER, OPERATORS_FOR_FILTER, WHERE_PATTERN
+from scr.constants import FIELDS_FOR_FILTER, WHERE_PATTERN
 from scr.models.goods import Good
 
 
@@ -12,18 +12,26 @@ class Report(ABC):
 
 
 class Filter(Report):
-    def _parse_condition(self, condition: str) -> List[List[Tuple[str, str, Union[str, float]]]]:
+    @staticmethod
+    def _parse_condition(
+            condition: str
+    ) -> List[List[Tuple[str, str, Union[str, float]]]]:
         """
-        Парсит строку с несколькими условиями, разделёнными ';' (AND) или '|' (OR).
-        Возвращает список групп условий, где каждая группа — список кортежей (поле, оператор, значение).
-        Пример: "brand=xiaomi;rating>=4.8|price<=500" -> [[("brand", "=", "xiaomi"), ("rating", ">=", 4.8)],
+        Парсит строку с несколькими условиями.
+
+        Парсит строку с несколькими условиями, разделёнными ';' (AND) или
+        '|' (OR).
+        Возвращает список групп условий, где каждая группа — список кортежей
+         (поле, оператор, значение).
+        Пример: "brand=xiaomi;rating>=4.8|price<=500" ->
+        [[("brand", "=", "xiaomi"), ("rating", ">=", 4.8)],
         [("price", "<=", 500)]]
         """
         or_groups = []
 
         # Проверяем, что строка не пустая после очистки
         if not condition.strip():
-            raise ValueError("Условие не может быть пустым")
+            raise ValueError('Условие не может быть пустым')
 
         # Разделяем строку на группы условий (OR)
         condition_groups = condition.strip().split('|')
@@ -47,20 +55,19 @@ class Filter(Report):
                 field, operator, value = match.groups()
                 value = value.strip()
 
-                if not value:
-                    raise ValueError(f'Значение для поля {field} не может быть пустым')
-
                 if field not in FIELDS_FOR_FILTER:
-                    raise ValueError(f'Недопустимое поле: {field}. Допустимые поля: {FIELDS_FOR_FILTER}')
-                if operator not in OPERATORS_FOR_FILTER:
-                    raise ValueError(f'Недопустимый оператор: {operator}. Допустимые операторы: {OPERATORS_FOR_FILTER}')
+                    raise ValueError(f'Недопустимое поле: {field}. '
+                                     f'Допустимые поля: {FIELDS_FOR_FILTER}')
 
                 # Преобразуем значение в зависимости от поля
                 if field in ['price', 'rating']:
                     try:
                         value = float(value)
                     except ValueError:
-                        raise ValueError(f'Для поля {field} ожидается числовое значение, получено: {value}')
+                        raise ValueError(
+                            f'Для поля {field} ожидается числовое значение, '
+                            f'получено: {value}'
+                        )
 
                 # Для name и brand значение остаётся строкой
                 group_conditions.append((field, operator, value))
@@ -72,10 +79,14 @@ class Filter(Report):
             raise ValueError('Не найдено ни одного валидного условия')
         return or_groups
 
-    def _compare(self, good: Good, field: str, operator: str, value: Union[str, float]) -> bool:
-        """
-        Проверяет, удовлетворяет ли объект Good одному условию.
-        """
+    @staticmethod
+    def _compare(
+            good: Good,
+            field: str,
+            operator: str,
+            value: Union[str, float]
+    ) -> bool:
+        """Проверяет, удовлетворяет ли объект Good одному условию."""
         # Получаем значение поля из объекта
         good_value = getattr(good, field)
 
@@ -86,7 +97,9 @@ class Filter(Report):
         # Для строк (name, brand) используем только = и !=
         if field in ['name', 'brand']:
             if operator not in ['=', '!=']:
-                raise ValueError(f'Для поля {field} поддерживаются только операторы = и !=')
+                raise ValueError(
+                    f'Для поля {field} поддерживаются только операторы = и !='
+                )
             if operator == '=':
                 return good_value.lower() == value.lower()
             return good_value.lower() != value.lower()
@@ -108,30 +121,42 @@ class Filter(Report):
 
     def filter_goods(self, condition: str) -> List[Good]:
         """
-        Фильтрует список объектов Good на основе условий, объединённых через AND и OR.
+        Фильтрует список объектов Good.
+
+        Фильтрует список объектов Good на основе условий,
+        объединённых через AND и OR.
         """
         or_groups = self._parse_condition(condition)
 
-        # Фильтруем: объект должен удовлетворять хотя бы одной группе условий (OR)
+        # Фильтруем: объект должен удовлетворять хотя бы
+        # одной группе условий (OR)
         filtered = []
         for good in self.data:
             for group in or_groups:
-                # Проверяем, удовлетворяет ли объект всем условиям в группе (AND)
-                satisfies_group = all(self._compare(good, field, operator, value) for field, operator, value in group)
+                # Проверяем, удовлетворяет ли объект всем условиям
+                # в группе (AND)
+                satisfies_group = all(
+                    self._compare(good, field, operator, value
+                                  ) for field, operator, value in group)
                 if satisfies_group:
                     filtered.append(good)
-                    break  # Если группа удовлетворена, переходим к следующему объекту
+                    break  # Если группа удовлетворена,
+                    # переходим к следующему объекту
 
         return filtered
 
-    def calculate_aggregation(self, field: str, operation: str) -> Optional[float]:
+    def calculate_aggregation(
+            self,
+            field: str,
+            operation: str
+    ) -> Optional[float]:
         """
-        Вычисляет агрегацию (avg, min, max) для указанного поля (price, rating).
+        Вычисляет агрегацию.
+
+        Вычисляет агрегацию (avg, min, max) для указанного поля (price,
+        rating).
         Возвращает результат или None, если список товаров пуст.
         """
-        if not self.data:
-            return None
-
         values = [getattr(good, field) for good in self.data]
 
         if operation == 'avg':
@@ -144,11 +169,10 @@ class Filter(Report):
 
     def sort_goods(self, field: str, order: str) -> List[Good]:
         """
+        Сортирует список.
+
         Сортирует список товаров по указанному полю и порядку (asc или desc).
         """
-        if not self.data:
-            return self.data
-
         reverse = order == 'desc'
         return sorted(
             self.data,

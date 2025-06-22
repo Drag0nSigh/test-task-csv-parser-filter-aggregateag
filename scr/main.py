@@ -1,22 +1,29 @@
 import argparse
+import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, List, Union
 
-import json
-import re
 from tabulate import tabulate
 
 sys.path.append(str(Path(__file__).parent.parent))
 
 from scr.constants import AGGR_PATTERN, ORDER_PATTERN
 from scr.models.goods import Good
-from scr.reports.reports import Filter
 from scr.parsers.parsers import ParserCsv
+from scr.reports.reports import Filter
 
 
 class ValidateFilesAction(argparse.Action):
+    """
+    Валидация параметра файла для обработки.
+
+    Проверяет файл ли это, правильный ли путь и расширение файла.
+    """
+
     def __call__(self, parser, namespace, values, option_string=None):
+        """Проверка пути к файлу."""
         valid_files = []
         for file_path in values:
             path = Path(file_path)
@@ -35,6 +42,7 @@ class ValidateFilesAction(argparse.Action):
 
 
 def parse_arguments() -> argparse.Namespace:
+    """Парсит аргументы выполнение скрипта."""
     parser = argparse.ArgumentParser(
         description='Обработка файлов и создание отчётов.'
     )
@@ -78,7 +86,7 @@ def parse_arguments() -> argparse.Namespace:
 def validate_aggregate(aggregate: str) -> tuple[str, str]:
     """Валидирует аргумент --aggregate, возвращает (field, operation)."""
     if not aggregate:
-        raise ValueError("Аргумент --aggregate не может быть пустым")
+        raise ValueError('Аргумент --aggregate не может быть пустым')
     match = re.match(AGGR_PATTERN, aggregate)
     if not match:
         raise ValueError('Неверный формат агрегации: должен быть '
@@ -87,17 +95,19 @@ def validate_aggregate(aggregate: str) -> tuple[str, str]:
     field, operation = match.groups()
     return field, operation
 
+
 def validate_order_by(order_by: str) -> tuple[str, str]:
     """Валидирует аргумент --order-by, возвращает (field, order)."""
     if not order_by:
-        raise ValueError("Аргумент --order-by не может быть пустым")
+        raise ValueError('Аргумент --order-by не может быть пустым')
     match = re.match(ORDER_PATTERN, order_by)
     if not match:
-        raise ValueError('Неверный формат сортировки: должен быть "field=order"'
-                         ', где field в ["name", "brand", "price", "rating"],'
-                         ' order в ["asc", "desc"]')
+        raise ValueError('Неверный формат сортировки: должен быть '
+                         '"field=order", где field в ["name", "brand", "price"'
+                         ', "rating"], order в ["asc", "desc"]')
     field, order = match.groups()
     return field, order
+
 
 def print_table(
         data: List[Any],
@@ -107,8 +117,10 @@ def print_table(
         aggregate: str = None
 ) -> None:
     """Выводит таблицу в терминал с описанием отчёта."""
-    description = f'Агрегация товаров (условие: {where or "без фильтра"}, агрегация: {aggregate})'\
-        if aggregate else f'Отфильтрованные товары (условие: {where or "без фильтра"})'
+    description = (f'Агрегация товаров (условие: {where or "без фильтра"}, '
+                   f'агрегация: {aggregate})') \
+        if aggregate else (f'Отфильтрованные товары (условие: '
+                           f'{where or "без фильтра"})')
     print(description + ':')
     print(tabulate(data, headers=headers, tablefmt='grid', floatfmt=floatfmt))
 
@@ -117,7 +129,8 @@ def save_json(data: Any, output: str, output_dir: str = 'export') -> None:
     """Сохраняет данные в JSON-файл в указанной папке."""
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
-    output_file = output_path / f'{output}.json' if not output.endswith('.json') else output_path / output
+    output_file = output_path / f'{output}.json' if not output.endswith(
+        '.json') else output_path / output
     try:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -128,6 +141,7 @@ def save_json(data: Any, output: str, output_dir: str = 'export') -> None:
 
 
 def process_files(file_paths: List[str]) -> List[Good]:
+    """Проверка во время парсинга файла."""
     combined_result = []
     for file_path in file_paths:
         try:
@@ -151,6 +165,7 @@ def process_files(file_paths: List[str]) -> List[Good]:
 
 
 def main():
+    """Скприпт по фильтрации, агрегации, сортировки данных и вывода в отчёт."""
     args = parse_arguments()
 
     # Чтение и парсинг данных

@@ -9,4 +9,5 @@ class Good:
     rating: float
 
     def __str__(self) -> str:
-        return f"Good(name={self.name}, brand={self.brand}, price={self.price}, rating={self.rating})"
+        return (f'Good(name={self.name}, brand={self.brand}, '
+                f'price={self.price}, rating={self.rating})')
