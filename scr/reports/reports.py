@@ -1,75 +1,66 @@
 import re
-from abc import ABC
-from typing import List, Optional, Tuple, Union
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from scr.constants import FIELDS_FOR_FILTER, WHERE_PATTERN
-from scr.models.goods import Good
+from scr.constants import WHERE_PATTERN
 
 
 class Report(ABC):
-    def __init__(self, data: List[Good]):
+    """Базовый класс для работы с отчётами."""
+
+    def __init__(self, data: List[Any], field_types: Dict[str, type]):
         self.data = data
+        self.field_types = field_types
 
-
-class Filter(Report):
     @staticmethod
     def _parse_condition(
-            condition: str
+            condition: str,
+            field_types: Dict[str, type]
     ) -> List[List[Tuple[str, str, Union[str, float]]]]:
-        """
-        Парсит строку с несколькими условиями.
+        """Парсит строку с условиями фильтрации, разделёнными ';' (AND) или '|' (OR)."""
 
-        Парсит строку с несколькими условиями, разделёнными ';' (AND) или
-        '|' (OR).
-        Возвращает список групп условий, где каждая группа — список кортежей
-         (поле, оператор, значение).
-        Пример: "brand=xiaomi;rating>=4.8|price<=500" ->
-        [[("brand", "=", "xiaomi"), ("rating", ">=", 4.8)],
-        [("price", "<=", 500)]]
-        """
-        or_groups = []
-
-        # Проверяем, что строка не пустая после очистки
         if not condition.strip():
             raise ValueError('Условие не может быть пустым')
 
-        # Разделяем строку на группы условий (OR)
+        or_groups = []
         condition_groups = condition.strip().split('|')
 
         for group in condition_groups:
             group_conditions = []
-            # Разделяем группу на отдельные условия (AND)
             condition_list = group.strip().split(';')
             if not condition_list:
-                continue  # Пропускаем пустые группы
+                continue
 
             for cond in condition_list:
                 cond = cond.strip()
                 if not cond:
-                    continue  # Пропускаем пустые условия
+                    continue
 
-                match: re.Match | None = re.match(WHERE_PATTERN, cond)
+                match = re.match(WHERE_PATTERN, cond)
                 if not match:
                     raise ValueError(f'Неверный формат условия: {cond}')
 
                 field, operator, value = match.groups()
                 value = value.strip()
 
-                if field not in FIELDS_FOR_FILTER:
-                    raise ValueError(f'Недопустимое поле: {field}. '
-                                     f'Допустимые поля: {FIELDS_FOR_FILTER}')
+                if field not in field_types:
+                    raise ValueError(f'Поле "{field}" отсутствует в данных')
 
-                # Преобразуем значение в зависимости от поля
-                if field in ['price', 'rating']:
+                # Проверка операторов для строковых полей
+                if field_types[field] == str and operator not in ['=', '!=']:
+                    raise ValueError(
+                        f'Для строкового поля "{field}" поддерживаются только операторы = и !='
+                    )
+
+                # Преобразование значения для числовых полей
+                if field_types[field] == float:
                     try:
                         value = float(value)
                     except ValueError:
                         raise ValueError(
-                            f'Для поля {field} ожидается числовое значение, '
-                            f'получено: {value}'
+                            f'Для числового поля "{field}" ожидается числовое значение, получено: {value}'
                         )
 
-                # Для name и brand значение остаётся строкой
                 group_conditions.append((field, operator, value))
 
             if group_conditions:
@@ -81,30 +72,24 @@ class Filter(Report):
 
     @staticmethod
     def _compare(
-            good: Good,
+            good: Any,
             field: str,
             operator: str,
             value: Union[str, float]
     ) -> bool:
-        """Проверяет, удовлетворяет ли объект Good одному условию."""
-        # Получаем значение поля из объекта
+        """Проверяет, удовлетворяет ли объект одному условию."""
         good_value = getattr(good, field)
 
-        # Обработка пропущенных значений
         if good_value is None:
             return False
 
-        # Для строк (name, brand) используем только = и !=
-        if field in ['name', 'brand']:
-            if operator not in ['=', '!=']:
-                raise ValueError(
-                    f'Для поля {field} поддерживаются только операторы = и !='
-                )
+        if isinstance(value, str):
+            good_value = str(good_value).lower()
+            value = value.lower()
             if operator == '=':
-                return good_value.lower() == value.lower()
-            return good_value.lower() != value.lower()
+                return good_value == value
+            return good_value != value
 
-        # Для чисел (price, rating)
         if operator == '=':
             return good_value == value
         elif operator == '!=':
@@ -119,45 +104,46 @@ class Filter(Report):
             return good_value <= value
         return False
 
-    def filter_goods(self, condition: str) -> List[Good]:
-        """
-        Фильтрует список объектов Good.
 
-        Фильтрует список объектов Good на основе условий,
-        объединённых через AND и OR.
-        """
-        or_groups = self._parse_condition(condition)
+class Filter(Report):
+    """Класс для фильтрации данных."""
 
-        # Фильтруем: объект должен удовлетворять хотя бы
-        # одной группе условий (OR)
+    def filter_goods(self, condition: str) -> List[Any]:
+        """ Фильтрует список объектов на основе условий."""
+
+        or_groups = self._parse_condition(condition, self.field_types)
         filtered = []
+
         for good in self.data:
             for group in or_groups:
-                # Проверяем, удовлетворяет ли объект всем условиям
-                # в группе (AND)
                 satisfies_group = all(
-                    self._compare(good, field, operator, value
-                                  ) for field, operator, value in group)
+                    self._compare(good, field, operator, value)
+                    for field, operator, value in group
+                )
                 if satisfies_group:
                     filtered.append(good)
-                    break  # Если группа удовлетворена,
-                    # переходим к следующему объекту
+                    break
 
         return filtered
 
-    def calculate_aggregation(
-            self,
-            field: str,
-            operation: str
-    ) -> Optional[float]:
-        """
-        Вычисляет агрегацию.
 
-        Вычисляет агрегацию (avg, min, max) для указанного поля (price,
-        rating).
-        Возвращает результат или None, если список товаров пуст.
-        """
-        values = [getattr(good, field) for good in self.data]
+class Aggregator(Report):
+    """Класс для агрегации данных."""
+
+    def calculate_aggregation(self, field: str, operation: str) -> Optional[float]:
+        """Вычисляет агрегацию (avg, min, max) для указанного поля."""
+
+        if field not in self.field_types:
+            raise ValueError(f'Поле "{field}" отсутствует в данных')
+        if self.field_types[field] != float:
+            raise ValueError(f'Агрегация возможна только для числовых полей, '
+                             f'"{field}" имеет тип {self.field_types[field]}')
+        if operation not in ['avg', 'min', 'max']:
+            raise ValueError(f'Недопустимая операция агрегации: {operation}')
+
+        values = [getattr(good, field) for good in self.data if getattr(good, field) is not None]
+        if not values:
+            return None
 
         if operation == 'avg':
             return sum(values) / len(values)
@@ -167,14 +153,17 @@ class Filter(Report):
             return max(values)
         return None
 
-    def sort_goods(self, field: str, order: str) -> List[Good]:
-        """
-        Сортирует список.
 
-        Сортирует список товаров по указанному полю и порядку (asc или desc).
-        """
+class Sorter(Report):
+    """Класс для сортировки данных."""
+
+    def sort_goods(self, field: str, order: str) -> List[Any]:
+        """Сортирует список объектов по указанному полю и порядку."""
+
+        if field not in self.field_types:
+            raise ValueError(f'Поле "{field}" отсутствует в данных')
+        if order not in ['asc', 'desc']:
+            raise ValueError(f'Недопустимый порядок сортировки: {order}')
+
         reverse = order == 'desc'
-        return sorted(
-            self.data,
-            key=lambda good: getattr(good, field), reverse=reverse
-        )
+        return sorted(self.data, key=lambda good: getattr(good, field) or '', reverse=reverse)

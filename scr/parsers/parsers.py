@@ -1,45 +1,66 @@
 import csv
+from dataclasses import make_dataclass
 from typing import Any, Dict, List, TextIO
 
-from scr.constants import FIELDS_FOR_FILTER
-from scr.models.goods import Good
-
-
 class ParserCsv:
+    """Класс для парсинга CSV"""
     def __init__(self, csv_file: TextIO):
         self.csv_file = csv_file
 
-    def parse_data(self) -> List[Good]:
-        """Парсит файл csv по условиям и создаёт список объектов Good."""
-        goods = []
+    def parse_data(self) -> tuple[List[Any], Dict[str, type]]:
+        """
+        Парсит CSV-файл и возвращает список объектов и словарь типов полей.
+
+        Читает CSV-файл, используя `csv.DictReader`, определяет типы данных полей на основе первой строки
+        (строка или число с плавающей точкой), создаёт динамический класс `Good` с помощью `dataclasses.make_dataclass`
+        и преобразует строки CSV в объекты этого класса.
+        """
         reader = csv.DictReader(self.csv_file)
 
-        # Проверка заголовков
-        if not set(FIELDS_FOR_FILTER).issubset(reader.fieldnames or []):
-            missing = set(FIELDS_FOR_FILTER) - set(reader.fieldnames or [])
-            raise ValueError(f"Отсутствуют обязательные поля в CSV: {missing}")
+        # Проверка наличия заголовков
+        if not reader.fieldnames:
+            raise ValueError("CSV-файл не содержит заголовков")
 
-        for row in reader:  # type: Dict[str, Any]
+        # Получаем первую строку для анализа типов
+        try:
+            first_row = next(reader, None)
+            if first_row is None:
+                return [], {}
+        except StopIteration:
+            return [], {}
+
+        # Определяем типы полей по первой строке
+        field_types = {}
+        for field in reader.fieldnames:
+            value = first_row.get(field, '').strip()
             try:
-                name = row.get('name', '').strip()
-                brand = row.get('brand', '').strip()
-                price_str = row.get('price', '').strip()
-                rating_str = row.get('rating', '').strip()
+                float(value)
+                field_types[field] = float
+            except ValueError:
+                field_types[field] = str
 
-                if not all([name, brand, price_str, rating_str]):
-                    raise ValueError("Одно или несколько обязательных полей "
-                                     "пусты")
+        # Создаём динамический класс Good
+        fields = [(field, field_types[field]) for field in reader.fieldnames]
+        Good = make_dataclass('Good', fields, repr=True)
 
-                price = int(price_str)
-                rating = float(rating_str)
+        # Перематываем файл на начало для повторного чтения
+        self.csv_file.seek(0)
+        reader = csv.DictReader(self.csv_file)
+        next(reader)  # Пропускаем заголовки
 
-                good = Good(
-                    name=name,
-                    brand=brand,
-                    price=price,
-                    rating=rating
-                )
+        goods = []
+        for row in reader:
+            try:
+                kwargs = {}
+                for field in reader.fieldnames:
+                    value = row.get(field, '').strip()
+                    if field_types[field] == float:
+                        value = float(value) if value else 0.0  # Пустое значение как 0.0 для float
+                    else:
+                        value = value if value else ''  # Пустое значение как '' для str
+                    kwargs[field] = value
+                good = Good(**kwargs)
                 goods.append(good)
             except ValueError as e:
                 print(f'Пропущена строка {reader.line_num}: {e}')
-        return goods
+        return goods, field_types

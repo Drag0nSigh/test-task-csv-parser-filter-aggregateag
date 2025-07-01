@@ -3,23 +3,22 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, List, Union
+from typing import Any, Dict, List, Union
 
 from tabulate import tabulate
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from scr.constants import AGGR_PATTERN, ORDER_PATTERN
-from scr.models.goods import Good
+from scrup.constants import AGGR_PATTERN, ORDER_PATTERN
 from scr.parsers.parsers import ParserCsv
-from scr.reports.reports import Filter
+from scr.reports.reports import Aggregator, Filter, Sorter
 
 
 class ValidateFilesAction(argparse.Action):
     """
     Валидация параметра файла для обработки.
 
-    Проверяет файл ли это, правильный ли путь и расширение файла.
+    Проверяет, является ли путь файлом, существует ли он и имеет ли правильное расширение.
     """
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -27,24 +26,20 @@ class ValidateFilesAction(argparse.Action):
         valid_files = []
         for file_path in values:
             path = Path(file_path)
-            # Проверяем существование файла
             if not path.exists():
                 parser.error(f'Файл "{file_path}" не существует')
-            # Проверяем, что это файл, а не директория
             if not path.is_file():
                 parser.error(f'"{file_path}" не является файлом')
-            # Проверяем расширение
             if path.suffix.lower() != '.csv':
-                parser.error(f'Файл "{file_path}" должен иметь расширение '
-                             f'.csv')
+                parser.error(f'Файл "{file_path}" должен иметь расширение .csv')
             valid_files.append(file_path)
         setattr(namespace, 'files', valid_files)
 
 
 def parse_arguments() -> argparse.Namespace:
-    """Парсит аргументы выполнение скрипта."""
+    """Парсит аргументы выполнения скрипта."""
     parser = argparse.ArgumentParser(
-        description='Обработка файлов и создание отчётов.'
+        description='Обработка CSV-файлов и создание отчётов.'
     )
     parser.add_argument(
         'files',
@@ -56,8 +51,7 @@ def parse_arguments() -> argparse.Namespace:
         '--report',
         choices=['terminal', 'json'],
         default='terminal',
-        help='Тип отчёта: "terminal" для вывода в терминал, '
-             '"json" для JSON'
+        help='Тип отчёта: "terminal" для вывода в терминал, "json" для JSON'
     )
     parser.add_argument(
         '--output',
@@ -77,35 +71,39 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         '--order-by',
-        help='Сортировка данных в формате "field=order", например, "brand=asc"'
-             ' или "price=desc"'
+        help='Сортировка данных в формате "field=order", например, "brand=asc" '
+             'или "price=desc"'
     )
     return parser.parse_args()
 
 
-def validate_aggregate(aggregate: str) -> tuple[str, str]:
+def validate_aggregate(aggregate: str, field_types: Dict[str, type]) -> tuple[str, str]:
     """Валидирует аргумент --aggregate, возвращает (field, operation)."""
     if not aggregate:
         raise ValueError('Аргумент --aggregate не может быть пустым')
     match = re.match(AGGR_PATTERN, aggregate)
     if not match:
-        raise ValueError('Неверный формат агрегации: должен быть '
-                         '"field=operation", где field в ["price", "rating"],'
-                         ' operation в ["avg", "min", "max"]')
+        raise ValueError('Неверный формат агрегации: должен быть "field=operation", '
+                         'где operation в ["avg", "min", "max"]')
     field, operation = match.groups()
+    if field not in field_types:
+        raise ValueError(f'Поле "{field}" отсутствует в данных')
+    if field_types[field] != float:
+        raise ValueError(f'Агрегация возможна только для числовых полей, "{field}" имеет тип {field_types[field]}')
     return field, operation
 
 
-def validate_order_by(order_by: str) -> tuple[str, str]:
+def validate_order_by(order_by: str, field_types: Dict[str, type]) -> tuple[str, str]:
     """Валидирует аргумент --order-by, возвращает (field, order)."""
     if not order_by:
         raise ValueError('Аргумент --order-by не может быть пустым')
     match = re.match(ORDER_PATTERN, order_by)
     if not match:
-        raise ValueError('Неверный формат сортировки: должен быть '
-                         '"field=order", где field в ["name", "brand", "price"'
-                         ', "rating"], order в ["asc", "desc"]')
+        raise ValueError('Неверный формат сортировки: должен быть "field=order", '
+                         'где order в ["asc", "desc"]')
     field, order = match.groups()
+    if field not in field_types:
+        raise ValueError(f'Поле "{field}" отсутствует в данных')
     return field, order
 
 
@@ -116,7 +114,7 @@ def print_table(
         where: str,
         aggregate: str = None
 ) -> None:
-    """Выводит таблицу в терминал с описанием отчёта."""
+    """Выводит таблицу в Таблица в терминал с описанием отчёта."""
     description = (f'Агрегация товаров (условие: {where or "без фильтра"}, '
                    f'агрегация: {aggregate})') \
         if aggregate else (f'Отфильтрованные товары (условие: '
@@ -129,8 +127,7 @@ def save_json(data: Any, output: str, output_dir: str = 'export') -> None:
     """Сохраняет данные в JSON-файл в указанной папке."""
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
-    output_file = output_path / f'{output}.json' if not output.endswith(
-        '.json') else output_path / output
+    output_file = output_path / f'{output}.json' if not output.endswith('.json') else output_path / output
     try:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -140,15 +137,20 @@ def save_json(data: Any, output: str, output_dir: str = 'export') -> None:
         sys.exit(1)
 
 
-def process_files(file_paths: List[str]) -> List[Good]:
-    """Проверка во время парсинга файла."""
-    combined_result = []
+def process_files(file_paths: List[str]) -> tuple[List[Any], Dict[str, type]]:
+    """Читает и парсит CSV-файлы, возвращает список объектов и словарь типов полей."""
+    combined_goods = []
+    field_types = {}
     for file_path in file_paths:
         try:
             with open(file_path, 'r', encoding='utf-8', newline='') as file:
                 try:
-                    result = ParserCsv(file).parse_data()
-                    combined_result += result
+                    goods, types = ParserCsv(file).parse_data()
+                    combined_goods += goods
+                    if not field_types:
+                        field_types = types
+                    elif field_types != types:
+                        print(f'Предупреждение: файл "{file_path}" имеет разные типы полей')
                 except ValueError as e:
                     print(f'Ошибка данных в файле "{file_path}": {e}')
                     continue
@@ -158,23 +160,23 @@ def process_files(file_paths: List[str]) -> List[Good]:
         except Exception as e:
             print(f'Ошибка при чтении файла "{file_path}": {e}')
             continue
-    if not combined_result:
+    if not combined_goods:
         print('Ошибка: ни один файл не был успешно обработан.')
         sys.exit(1)
-    return combined_result
+    return combined_goods, field_types
 
 
 def main():
-    """Скприпт по фильтрации, агрегации, сортировки данных и вывода в отчёт."""
+    """Основная функция для обработки данных, фильтрации, агрегации и сортировки."""
     args = parse_arguments()
 
     # Чтение и парсинг данных
-    goods = process_files(args.files)
+    goods, field_types = process_files(args.files)
 
-    # Фильтрация данных, если указано непустое условие
+    # Фильтрация данных, если указано условие
     if args.where and args.where.strip():
         try:
-            filter_report = Filter(goods)
+            filter_report = Filter(goods, field_types)
             goods = filter_report.filter_goods(args.where)
         except ValueError as e:
             print(f'Ошибка в условии фильтрации: {e}')
@@ -183,9 +185,9 @@ def main():
     # Сортировка данных, если указано
     if args.order_by:
         try:
-            field, order = validate_order_by(args.order_by)
-            filter_report = Filter(goods)
-            goods = filter_report.sort_goods(field, order)
+            field, order = validate_order_by(args.order_by, field_types)
+            sorter = Sorter(goods, field_types)
+            goods = sorter.sort_goods(field, order)
         except ValueError as e:
             print(f'Ошибка в сортировке: {e}')
             sys.exit(1)
@@ -193,9 +195,9 @@ def main():
     # Обработка агрегации
     if args.aggregate:
         try:
-            field, operation = validate_aggregate(args.aggregate)
-            filter_report = Filter(goods)
-            result = filter_report.calculate_aggregation(field, operation)
+            field, operation = validate_aggregate(args.aggregate, field_types)
+            aggregator = Aggregator(goods, field_types)
+            result = aggregator.calculate_aggregation(field, operation)
             if args.report == 'terminal':
                 print_table(
                     [[result]],
