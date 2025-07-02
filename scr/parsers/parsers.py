@@ -2,8 +2,12 @@ import csv
 from dataclasses import make_dataclass
 from typing import Any, Dict, List, TextIO
 
+from scr.exceptions import InvalidCsvFormatError
+
+
 class ParserCsv:
-    """Класс для парсинга CSV"""
+    """Класс для парсинга CSV."""
+
     def __init__(self, csv_file: TextIO):
         self.csv_file = csv_file
 
@@ -11,15 +15,17 @@ class ParserCsv:
         """
         Парсит CSV-файл и возвращает список объектов и словарь типов полей.
 
-        Читает CSV-файл, используя `csv.DictReader`, определяет типы данных полей на основе первой строки
-        (строка или число с плавающей точкой), создаёт динамический класс `Good` с помощью `dataclasses.make_dataclass`
-        и преобразует строки CSV в объекты этого класса.
+        Читает CSV-файл, используя `csv.DictReader`, определяет типы данных
+        полей на основе первой строки (строка или число с плавающей точкой),
+        создаёт динамический класс `Good` с помощью
+        `dataclasses.make_dataclass` и преобразует строки CSV в объекты
+        этого класса.
         """
         reader = csv.DictReader(self.csv_file)
 
         # Проверка наличия заголовков
         if not reader.fieldnames:
-            raise ValueError("CSV-файл не содержит заголовков")
+            raise InvalidCsvFormatError('CSV-файл не содержит заголовков')
 
         # Получаем первую строку для анализа типов
         try:
@@ -54,12 +60,14 @@ class ParserCsv:
                 for field in reader.fieldnames:
                     value = row.get(field, '').strip()
                     if field_types[field] == float:
-                        value = float(value) if value else 0.0  # Пустое значение как 0.0 для float
+                        # Пустое значение как 0.0 для float
+                        value = float(value) if value else 0.0
                     else:
-                        value = value if value else ''  # Пустое значение как '' для str
+                        # Пустое значение как '' для str
+                        value = value if value else ''
                     kwargs[field] = value
                 good = Good(**kwargs)
                 goods.append(good)
-            except ValueError as e:
+            except InvalidCsvFormatError as e:
                 print(f'Пропущена строка {reader.line_num}: {e}')
         return goods, field_types

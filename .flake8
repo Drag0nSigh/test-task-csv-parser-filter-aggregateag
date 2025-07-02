@@ -1,7 +1,8 @@
 [flake8]
 exclude =
     .venv,
+    venv,
     export,
     __pycache__,
     *.pyc
-ignore = D100, D101, D104, D105, D107
+ignore = D100, D101, D104, D105, D107, W504
