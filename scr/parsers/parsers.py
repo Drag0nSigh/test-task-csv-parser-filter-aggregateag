@@ -46,7 +46,6 @@ class ParserCsv:
         # Перематываем файл на начало для повторного чтения
         self.csv_file.seek(0)
         reader = csv.DictReader(self.csv_file)
-        next(reader)  # Пропускаем заголовки
 
         goods = []
         for row in reader:

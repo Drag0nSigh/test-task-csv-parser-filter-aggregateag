@@ -9,7 +9,7 @@ from tabulate import tabulate
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from scrup.constants import AGGR_PATTERN, ORDER_PATTERN
+from scr.constants import AGGR_PATTERN, ORDER_PATTERN
 from scr.parsers.parsers import ParserCsv
 from scr.reports.reports import Aggregator, Filter, Sorter
 
